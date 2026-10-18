@@ -1,0 +1,91 @@
+-- =======================================================
+-- FIXED & STABILIZED NATIVE AIR SLIDE FOR RIVALS (NO GUI)
+-- =======================================================
+-- Tuned down speed and synchronized hitbox pinning to fix bugs.
+
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+
+-- Engine Configuration (Tuned for maximum stability and anti-cheat safety)
+local SLIDE_SPEED = 33        -- Reduced speed to perfectly match the game's natural ground slide
+local SLIDE_DURATION = 0.45    -- Precise timeframe window to stop the animation smoothly
+local HITBOX_OFFSET = -3.00   -- Snapped closer to the feet to remove vertical bouncing stutters
+local COOLDOWN = 0.8          -- Prevents spam glitched loops
+
+local isSliding = false
+local lastSlideTime = 0
+
+-- High-frequency execution engine to keep the floor completely stable under the avatar
+local function createStableAirHitbox(character, rootPart)
+    local fakeFloor = Instance.new("Part")
+    fakeFloor.Name = "StableAirSlideFloor"
+    fakeFloor.Size = Vector3.new(6, 0.2, 6) -- Slightly more compact to prevent physics overlap bugs
+    fakeFloor.Anchored = true
+    fakeFloor.CanCollide = true
+    fakeFloor.Transparency = 1 -- Completely invisible
+    fakeFloor.Material = Enum.Material.SmoothPlastic
+    fakeFloor.Parent = workspace
+    
+    -- PreRender runs before the frame draws, instantly updating the platform positioning with zero delay
+    local frameConnection
+    frameConnection = RunService.PreRender:Connect(function()
+        if not isSliding or not rootPart or not rootPart.Parent then
+            if frameConnection then frameConnection:Disconnect() end
+            fakeFloor:Destroy()
+            return
+        end
+        -- Clean structural update alignment
+        fakeFloor.CFrame = rootPart.CFrame * CFrame.new(0, HITBOX_OFFSET, 0)
+    end)
+    
+    return fakeFloor
+end
+
+-- Main control engine
+local function handleStabilizedAirSlide()
+    local character = LocalPlayer.Character
+    local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    
+    if not rootPart or not humanoid or isSliding then return end
+    
+    -- Execute if the player is mid-air (jumping or falling)
+    if humanoid.FloorMaterial == Enum.Material.Air then
+        isSliding = true
+        lastSlideTime = tick()
+        
+        -- Spawn the perfectly synchronized client surface platform
+        local platform = createStableAirHitbox(character, rootPart)
+        
+        -- Smooth linear velocity force handling to eradicate erratic dash snaps
+        local bodyVelocity = Instance.new("BodyVelocity")
+        bodyVelocity.MaxForce = Vector3.new(200000, 0, 200000) -- Only push horizontally, letting gravity behave normally
+        bodyVelocity.Velocity = rootPart.CFrame.LookVector * SLIDE_SPEED
+        bodyVelocity.Parent = rootPart
+        
+        -- Run the smooth glide duration window
+        task.wait(SLIDE_DURATION)
+        
+        -- Deconstruct physical forces cleanly
+        if bodyVelocity and bodyVelocity.Parent then bodyVelocity:Destroy() end
+        isSliding = false
+    end
+end
+
+-- Monitor native crouching keybinds and mobile touch interfaces
+UserInputService.InputBegan:Connect(function(input, gameProcessedEvent)
+    if input.KeyCode == Enum.KeyCode.LeftControl or input.KeyCode == Enum.KeyCode.C or input.UserInputType == Enum.UserInputType.Touch then
+        
+        task.defer(function()
+            local character = LocalPlayer.Character
+            local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+            
+            -- If you hit your real slide button while airborne and off cooldown
+            if humanoid and humanoid.FloorMaterial == Enum.Material.Air and (tick() - lastSlideTime) >= COOLDOWN then
+                handleStabilizedAirSlide()
+            end
+        end)
+    end
+end)
